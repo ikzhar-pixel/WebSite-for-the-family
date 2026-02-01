@@ -1,0 +1,1994 @@
+<!DOCTYPE html>
+<html lang="uk">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Сімейний Органайзер</title>
+    
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <!-- React & ReactDOM -->
+    <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+    
+    <!-- Babel Standalone -->
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    
+    <!-- Framer Motion -->
+    <script src="https://unpkg.com/framer-motion@11/dist/framer-motion.js"></script>
+    
+    <!-- Lucide Icons -->
+    <script src="https://unpkg.com/lucide@latest"></script>
+    
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            overflow-x: hidden;
+        }
+        
+        .nav-scroll::-webkit-scrollbar {
+            height: 6px;
+        }
+        
+        .nav-scroll::-webkit-scrollbar-track {
+            background: transparent;
+        }
+        
+        .nav-scroll::-webkit-scrollbar-thumb {
+            background: #c084fc;
+            border-radius: 3px;
+        }
+        
+        .nav-scroll::-webkit-scrollbar-thumb:hover {
+            background: #a855f7;
+        }
+
+        /* Loader Styles */
+        .loader-container {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            z-index: 9999;
+            transition: opacity 0.5s ease, visibility 0.5s ease;
+        }
+
+        .loader-container.hidden {
+            opacity: 0;
+            visibility: hidden;
+        }
+
+        .loader {
+            width: 80px;
+            height: 80px;
+            border: 8px solid rgba(255, 255, 255, 0.2);
+            border-top-color: white;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+        }
+
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+
+        .loader-text {
+            color: white;
+            font-size: 1.5rem;
+            font-weight: 800;
+            margin-top: 2rem;
+            animation: pulse 2s ease-in-out infinite;
+        }
+
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+        }
+
+        .loader-dots {
+            display: flex;
+            gap: 0.5rem;
+            margin-top: 1rem;
+        }
+
+        .loader-dot {
+            width: 12px;
+            height: 12px;
+            background: white;
+            border-radius: 50%;
+            animation: bounce 1.4s ease-in-out infinite;
+        }
+
+        .loader-dot:nth-child(1) { animation-delay: -0.32s; }
+        .loader-dot:nth-child(2) { animation-delay: -0.16s; }
+
+        @keyframes bounce {
+            0%, 80%, 100% { transform: scale(0); opacity: 0.5; }
+            40% { transform: scale(1); opacity: 1; }
+        }
+
+        /* Smooth animations */
+        * {
+            -webkit-font-smoothing: antialiased;
+            -moz-osx-font-smoothing: grayscale;
+        }
+    </style>
+</head>
+<body>
+    <!-- Loader -->
+    <div id="loader" class="loader-container">
+        <div class="loader"></div>
+        <div class="loader-text">🏠 Сімейний Органайзер</div>
+        <div class="loader-dots">
+            <div class="loader-dot"></div>
+            <div class="loader-dot"></div>
+            <div class="loader-dot"></div>
+        </div>
+    </div>
+
+    <div id="root"></div>
+
+    <script type="text/babel">
+        const { useState, useRef, useEffect } = React;
+        const { motion, AnimatePresence } = Motion;
+        
+        // Lucide Icons Components
+        const Icon = ({ name, className = "w-6 h-6", ...props }) => {
+            useEffect(() => {
+                lucide.createIcons();
+            }, []);
+            return React.createElement('i', { 
+                'data-lucide': name, 
+                className: className,
+                ...props 
+            });
+        };
+
+        // Utility function to format date
+        const formatDate = (dateString) => {
+            const date = new Date(dateString);
+            const day = date.getDate();
+            const month = date.toLocaleString('uk-UA', { month: 'long' });
+            const year = date.getFullYear();
+            return `${day} ${month} ${year}`;
+        };
+
+        const formatDateTime = (dateString) => {
+            const date = new Date(dateString);
+            const hours = String(date.getHours()).padStart(2, '0');
+            const minutes = String(date.getMinutes()).padStart(2, '0');
+            const day = date.getDate();
+            const month = date.toLocaleString('uk-UA', { month: 'short' });
+            return `${hours}:${minutes}, ${day} ${month}`;
+        };
+
+        // Calendar Component
+        function Calendar() {
+            const [events, setEvents] = useState(() => {
+                const saved = localStorage.getItem('familyCalendarEvents');
+                return saved ? JSON.parse(saved) : [];
+            });
+            const [isAdding, setIsAdding] = useState(false);
+            const [editingId, setEditingId] = useState(null);
+            const [formData, setFormData] = useState({
+                title: '',
+                date: new Date().toISOString().split('T')[0],
+                type: 'other',
+                description: '',
+            });
+
+            const eventTypes = [
+                { value: 'birthday', label: 'День народження', color: 'from-pink-500 to-rose-500', badge: 'bg-pink-500' },
+                { value: 'doctor', label: 'Лікар', color: 'from-blue-500 to-cyan-500', badge: 'bg-blue-500' },
+                { value: 'school', label: 'Школа', color: 'from-green-500 to-emerald-500', badge: 'bg-green-500' },
+                { value: 'other', label: 'Інше', color: 'from-purple-500 to-violet-500', badge: 'bg-purple-500' },
+            ];
+
+            const saveEvents = (newEvents) => {
+                setEvents(newEvents);
+                localStorage.setItem('familyCalendarEvents', JSON.stringify(newEvents));
+            };
+
+            const handleSubmit = (e) => {
+                e.preventDefault();
+                if (editingId) {
+                    const updated = events.map(event =>
+                        event.id === editingId ? { ...formData, id: editingId } : event
+                    );
+                    saveEvents(updated);
+                    setEditingId(null);
+                } else {
+                    const newEvent = { ...formData, id: Date.now().toString() };
+                    saveEvents([...events, newEvent]);
+                }
+                setFormData({ title: '', date: new Date().toISOString().split('T')[0], type: 'other', description: '' });
+                setIsAdding(false);
+            };
+
+            const handleEdit = (event) => {
+                setFormData({ title: event.title, date: event.date, type: event.type, description: event.description || '' });
+                setEditingId(event.id);
+                setIsAdding(true);
+            };
+
+            const handleDelete = (id) => {
+                saveEvents(events.filter(event => event.id !== id));
+            };
+
+            const sortedEvents = [...events].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+
+            return (
+                <div className="space-y-6">
+                    <div className="flex items-center justify-between">
+                        <motion.h2
+                            initial={{ x: -20 }}
+                            animate={{ x: 0 }}
+                            className="flex items-center gap-3 text-2xl font-black bg-gradient-to-r from-blue-600 to-purple-600 bg-clip-text text-transparent"
+                        >
+                            <Icon name="calendar" className="w-8 h-8 text-blue-500" />
+                            Сімейний календар
+                        </motion.h2>
+                        <motion.button
+                            whileHover={{ scale: 1.05 }}
+                            whileTap={{ scale: 0.95 }}
+                            onClick={() => setIsAdding(!isAdding)}
+                            className="px-5 py-2.5 bg-gradient-to-r from-blue-500 to-purple-500 text-white rounded-xl hover:shadow-lg hover:shadow-purple-500/50 flex items-center gap-2 font-semibold"
+                        >
+                            <Icon name="plus" className="w-5 h-5" />
+                            Додати подію
+                        </motion.button>
+                    </div>
+
+                    <AnimatePresence>
+                        {isAdding && (
+                            <motion.form
+                                initial={{ opacity: 0, height: 0 }}
+                                animate={{ opacity: 1, height: 'auto' }}
+                                exit={{ opacity: 0, height: 0 }}
+                                onSubmit={handleSubmit}
+                                className="bg-gradient-to-br from-blue-50 to-purple-50 p-6 rounded-2xl space-y-4 border-2 border-blue-200 shadow-lg overflow-hidden"
+                            >
+                                <input
+                                    type="text"
+                                    placeholder="Назва події"
+                                    value={formData.title}
+                                    onChange={(e) => setFormData({ ...formData, title: e.target.value })}
+                                    required
+                                    className="w-full px-4 py-3 border-2 border-gray-200 rounded-xl focus:border-blue-500 focus:ring-2 focus:ring-blue-200 transition-all"
+                                />
+                                <div className="flex gap-3">
+                                    <input
+                                        type="date"
+                                        value={formData.date}
+                                        onChange={(e) => setFormData({ ...formData, date: e.target.value })}
+                                        required
+                                        className="flex-1 px-4 py-3 border-2 border-gray-200 rounded-xl focus:border-blue-500 focus:ring-2 focus:ring-blue-200 transition-all"
+                                    />
+                                    <select
+                                        value={formData.type}
+                                        onChange={(e) => setFormData({ ...formData, type: e.target.value })}
+                                        className="px-4 py-3 border-2 border-gray-200 rounded-xl focus:border-blue-500 focus:ring-2 focus:ring-blue-200 transition-all"
+                                    >
+                                        {eventTypes.map(type => (
+                                            <option key={type.value} value={type.value}>{type.label}</option>
+                                        ))}
+                                    </select>
+                                </div>
+                                <textarea
+                                    placeholder="Опис (необов'язково)"
+                                    value={formData.description}
+                                    onChange={(e) => setFormData({ ...formData, description: e.target.value })}
+                                    className="w-full px-4 py-3 border-2 border-gray-200 rounded-xl focus:border-blue-500 focus:ring-2 focus:ring-blue-200 transition-all"
+                                    rows="3"
+                                />
+                                <div className="flex gap-3">
+                                    <motion.button
+                                        whileHover={{ scale: 1.02 }}
+                                        whileTap={{ scale: 0.98 }}
+                                        type="submit"
+                                        className="px-6 py-3 bg-gradient-to-r from-blue-500 to-purple-500 text-white rounded-xl hover:shadow-lg hover:shadow-purple-500/50 font-semibold"
+                                    >
+                                        {editingId ? 'Оновити' : 'Додати'}
+                                    </motion.button>
+                                    <motion.button
+                                        whileHover={{ scale: 1.02 }}
+                                        whileTap={{ scale: 0.98 }}
+                                        type="button"
+                                        onClick={() => {
+                                            setIsAdding(false);
+                                            setEditingId(null);
+                                        }}
+                                        className="px-6 py-3 bg-gray-200 text-gray-700 rounded-xl hover:bg-gray-300 font-semibold"
+                                    >
+                                        Скасувати
+                                    </motion.button>
+                                </div>
+                            </motion.form>
+                        )}
+                    </AnimatePresence>
+
+                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                        {sortedEvents.length === 0 ? (
+                            <motion.div
+                                initial={{ opacity: 0 }}
+                                animate={{ opacity: 1 }}
+                                className="col-span-full text-center py-16 bg-gradient-to-br from-gray-50 to-gray-100 rounded-2xl border-2 border-dashed border-gray-300"
+                            >
+                                <Icon name="calendar" className="w-16 h-16 text-gray-300 mx-auto mb-3" />
+                                <p className="text-gray-500 text-lg">Подій ще немає</p>
+                                <p className="text-gray-400 text-sm">Додайте першу подію!</p>
+                            </motion.div>
+                        ) : (
+                            sortedEvents.map((event, index) => {
+                                const eventType = eventTypes.find(t => t.value === event.type);
+                                const eventDate = new Date(event.date + 'T00:00:00');
+                                const today = new Date();
+                                today.setHours(0, 0, 0, 0);
+                                const isUpcoming = eventDate >= today;
+                                
+                                return (
+                                    <motion.div
+                                        key={event.id}
+                                        initial={{ opacity: 0, scale: 0.9 }}
+                                        animate={{ opacity: 1, scale: 1 }}
+                                        transition={{ delay: index * 0.05 }}
+                                        whileHover={{ scale: 1.03, y: -5 }}
+                                        className={`bg-white border-2 rounded-2xl p-5 hover:shadow-xl transition-all group ${
+                                            isUpcoming ? 'border-blue-200' : 'border-gray-200 opacity-75'
+                                        }`}
+                                    >
+                                        <div className="flex items-start justify-between mb-3">
+                                            <div className="flex-1">
+                                                <h3 className="font-bold text-lg mb-2">{event.title}</h3>
+                                                <span className={`text-xs px-2 py-1 rounded-full ${eventType?.badge} text-white font-semibold inline-block`}>
+                                                    {eventType?.label}
+                                                </span>
+                                            </div>
+                                            <div className="flex gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                                                <motion.button
+                                                    whileHover={{ scale: 1.1 }}
+                                                    whileTap={{ scale: 0.9 }}
+                                                    onClick={() => handleEdit(event)}
+                                                    className="p-2 text-blue-500 hover:bg-blue-50 rounded-lg transition-colors"
+                                                >
+                                                    <Icon name="edit-2" className="w-4 h-4" />
+                                                </motion.button>
+                                                <motion.button
+                                                    whileHover={{ scale: 1.1 }}
+                                                    whileTap={{ scale: 0.9 }}
+                                                    onClick={() => handleDelete(event.id)}
+                                                    className="p-2 text-red-500 hover:bg-red-50 rounded-lg transition-colors"
+                                                >
+                                                    <Icon name="trash-2" className="w-4 h-4" />
+                                                </motion.button>
+                                            </div>
+                                        </div>
+                                        <div className="flex items-center gap-2 text-sm text-gray-600 mb-2">
+                                            <Icon name="calendar" className="w-4 h-4" />
+                                            {formatDate(event.date + 'T00:00:00')}
+                                        </div>
+                                        {event.description && (
+                                            <p className="text-sm text-gray-500 mt-2 leading-relaxed">{event.description}</p>
+                                        )}
+                                    </motion.div>
+                                );
+                            })
+                        )}
+                    </div>
+                </div>
+            );
+        }
+
+        // ShoppingList Component
+        function ShoppingList() {
+            const productDatabase = [
+                'Молоко', 'Хліб', 'Яйця', 'Масло', 'Сир', 'Ковбаса', 'Курка', 'М\'ясо', 
+                'Риба', 'Картопля', 'Морква', 'Цибуля', 'Помідори', 'Огірки', 'Перець',
+                'Яблука', 'Банани', 'Апельсини', 'Рис', 'Макарони', 'Гречка', 'Цукор',
+                'Сіль', 'Олія', 'Мука', 'Кава', 'Чай', 'Сік', 'Вода', 'Йогурт'
+            ];
+
+            const [items, setItems] = useState(() => {
+                const saved = localStorage.getItem('familyShoppingList');
+                return saved ? JSON.parse(saved) : [];
+            });
+            const [newItem, setNewItem] = useState('');
+            const [suggestions, setSuggestions] = useState([]);
+
+            const saveItems = (newItems) => {
+                setItems(newItems);
+                localStorage.setItem('familyShoppingList', JSON.stringify(newItems));
+            };
+
+            const handleSubmit = (e) => {
+                e.preventDefault();
+                if (!newItem.trim()) return;
+                const item = {
+                    id: Date.now().toString(),
+                    name: newItem,
+                    checked: false,
+                };
+                saveItems([...items, item]);
+                setNewItem('');
+                setSuggestions([]);
+            };
+
+            const toggleItem = (id) => {
+                saveItems(items.map(item =>
+                    item.id === id ? { ...item, checked: !item.checked } : item
+                ));
+            };
+
+            const deleteItem = (id) => {
+                saveItems(items.filter(item => item.id !== id));
+            };
+
+            const clearCompleted = () => {
+                saveItems(items.filter(item => !item.checked));
+            };
+
+            const exportList = () => {
+                const dataStr = JSON.stringify(items, null, 2);
+                const dataUri = 'data:application/json;charset=utf-8,'+ encodeURIComponent(dataStr);
+                const exportFileDefaultName = 'shopping-list.json';
+                const linkElement = document.createElement('a');
+                linkElement.setAttribute('href', dataUri);
+                linkElement.setAttribute('download', exportFileDefaultName);
+                linkElement.click();
+            };
+
+            const importList = (event) => {
+                const file = event.target.files[0];
+                if (file) {
+                    const reader = new FileReader();
+                    reader.onload = (e) => {
+                        try {
+                            const importedItems = JSON.parse(e.target.result);
+                            saveItems(importedItems);
+                        } catch (error) {
+                            alert('Невірний формат файлу');
+                        }
+                    };
+                    reader.readAsText(file);
+                }
+            };
+
+            return (
+                <div className="space-y-6">
+                    <div className="flex items-center justify-between">
+                        <motion.h2
+                            initial={{ x: -20 }}
+                            animate={{ x: 0 }}
+                            className="flex items-center gap-3 text-2xl font-black bg-gradient-to-r from-green-600 to-emerald-600 bg-clip-text text-transparent"
+                        >
+                            <Icon name="shopping-cart" className="w-8 h-8 text-green-500" />
+                            Список покупок
+                        </motion.h2>
+                        {items.some(item => item.checked) && (
+                            <motion.button
+                                whileHover={{ scale: 1.05 }}
+                                whileTap={{ scale: 0.95 }}
+                                onClick={clearCompleted}
+                                className="px-4 py-2 text-sm bg-red-100 text-red-600 rounded-xl hover:bg-red-200 flex items-center gap-2 font-semibold"
+                            >
+                                <Icon name="trash-2" className="w-4 h-4" />
+                                Очистити куплене
+                            </motion.button>
+                        )}
+                        <motion.button
+                            whileHover={{ scale: 1.05 }}
+                            whileTap={{ scale: 0.95 }}
+                            onClick={exportList}
+                            className="px-4 py-2 text-sm bg-blue-100 text-blue-600 rounded-xl hover:bg-blue-200 flex items-center gap-2 font-semibold"
+                        >
+                            <Icon name="download" className="w-4 h-4" />
+                            Експорт
+                        </motion.button>
+                        <input
+                            type="file"
+                            accept=".json"
+                            onChange={importList}
+                            style={{ display: 'none' }}
+                            id="import-file"
+                        />
+                        <motion.button
+                            whileHover={{ scale: 1.05 }}
+                            whileTap={{ scale: 0.95 }}
+                            onClick={() => document.getElementById('import-file').click()}
+                            className="px-4 py-2 text-sm bg-green-100 text-green-600 rounded-xl hover:bg-green-200 flex items-center gap-2 font-semibold"
+                        >
+                            <Icon name="upload" className="w-4 h-4" />
+                            Імпорт
+                        </motion.button>
+                    </div>
+
+                    <motion.form
+                        initial={{ opacity: 0, y: 20 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        onSubmit={handleSubmit}
+                        className="relative"
+                    >
+                        <div className="flex gap-3">
+                            <div className="flex-1 relative">
+                                <input
+                                    type="text"
+                                    placeholder="Введіть продукт..."
+                                    value={newItem}
+                                    onChange={(e) => handleInputChange(e.target.value)}
+                                    className="w-full px-4 py-3 border-2 border-gray-200 rounded-xl focus:border-green-500 focus:ring-2 focus:ring-green-200 transition-all"
+                                />
+                                {suggestions.length > 0 && (
+                                    <motion.div
+                                        initial={{ opacity: 0, y: -10 }}
+                                        animate={{ opacity: 1, y: 0 }}
+                                        className="absolute z-10 w-full mt-2 bg-white border-2 border-gray-200 rounded-xl shadow-xl overflow-hidden"
+                                    >
+                                        {suggestions.map((suggestion, index) => (
+                                            <motion.button
+                                                key={index}
+                                                whileHover={{ backgroundColor: '#f0fdf4' }}
+                                                type="button"
+                                                onClick={() => {
+                                                    setNewItem(suggestion);
+                                                    setSuggestions([]);
+                                                }}
+                                                className="w-full px-4 py-2 text-left hover:bg-green-50 transition-colors"
+                                            >
+                                                {suggestion}
+                                            </motion.button>
+                                        ))}
+                                    </motion.div>
+                                )}
+                            </div>
+                            <motion.button
+                                whileHover={{ scale: 1.05 }}
+                                whileTap={{ scale: 0.95 }}
+                                type="submit"
+                                className="px-6 py-3 bg-gradient-to-r from-green-500 to-emerald-500 text-white rounded-xl hover:shadow-lg hover:shadow-green-500/50 flex items-center gap-2 font-semibold"
+                            >
+                                <Icon name="plus" className="w-5 h-5" />
+                                Додати
+                            </motion.button>
+                        </div>
+                    </motion.form>
+
+                    <div className="space-y-3">
+                        {items.length === 0 ? (
+                            <motion.div
+                                initial={{ opacity: 0 }}
+                                animate={{ opacity: 1 }}
+                                className="text-center py-16 bg-gradient-to-br from-gray-50 to-gray-100 rounded-2xl border-2 border-dashed border-gray-300"
+                            >
+                                <Icon name="shopping-cart" className="w-16 h-16 text-gray-300 mx-auto mb-3" />
+                                <p className="text-gray-500 text-lg">Список порожній</p>
+                                <p className="text-gray-400 text-sm">Додайте перший продукт!</p>
+                            </motion.div>
+                        ) : (
+                            <AnimatePresence>
+                                {items.map((item, index) => (
+                                    <motion.div
+                                        key={item.id}
+                                        initial={{ opacity: 0, x: -20 }}
+                                        animate={{ opacity: 1, x: 0 }}
+                                        exit={{ opacity: 0, x: 20 }}
+                                        transition={{ delay: index * 0.05 }}
+                                        whileHover={{ scale: 1.01, x: 5 }}
+                                        className={`bg-white border-2 rounded-2xl p-5 flex items-center justify-between hover:shadow-xl transition-all group ${
+                                            item.checked ? 'border-green-200 bg-green-50' : 'border-gray-100'
+                                        }`}
+                                    >
+                                        <div className="flex items-center gap-4 flex-1">
+                                            <motion.button
+                                                whileHover={{ scale: 1.2 }}
+                                                whileTap={{ scale: 0.9 }}
+                                                onClick={() => toggleItem(item.id)}
+                                                className={`w-7 h-7 border-2 rounded-lg flex items-center justify-center transition-all ${
+                                                    item.checked
+                                                        ? 'border-green-500 bg-green-500'
+                                                        : 'border-gray-300 hover:border-green-500'
+                                                }`}
+                                            >
+                                                {item.checked && <Icon name="check" className="w-5 h-5 text-white" />}
+                                            </motion.button>
+                                            <span
+                                                className={`text-lg font-semibold ${
+                                                    item.checked ? 'line-through text-gray-500' : 'text-gray-800'
+                                                }`}
+                                            >
+                                                {item.name}
+                                            </span>
+                                        </div>
+                                        <motion.button
+                                            whileHover={{ scale: 1.1 }}
+                                            whileTap={{ scale: 0.9 }}
+                                            onClick={() => deleteItem(item.id)}
+                                            className="p-2 text-red-500 hover:bg-red-50 rounded-lg opacity-0 group-hover:opacity-100 transition-all"
+                                        >
+                                            <Icon name="trash-2" className="w-5 h-5" />
+                                        </motion.button>
+                                    </motion.div>
+                                ))}
+                            </AnimatePresence>
+                        )}
+                    </div>
+
+                    {items.length > 0 && (
+                        <motion.div
+                            initial={{ opacity: 0 }}
+                            animate={{ opacity: 1 }}
+                            className="bg-gradient-to-r from-green-500 to-emerald-500 rounded-2xl p-6 text-white shadow-2xl"
+                        >
+                            <div className="flex items-center justify-between">
+                                <div>
+                                    <p className="text-sm opacity-90">Всього позицій</p>
+                                    <p className="text-3xl font-black">{items.length}</p>
+                                </div>
+                                <div>
+                                    <p className="text-sm opacity-90">Куплено</p>
+                                    <p className="text-3xl font-black">{items.filter(i => i.checked).length}</p>
+                                </div>
+                                <div>
+                                    <p className="text-sm opacity-90">Залишилось</p>
+                                    <p className="text-3xl font-black">{items.filter(i => !i.checked).length}</p>
+                                </div>
+                            </div>
+                        </motion.div>
+                    )}
+                </div>
+            );
+        }
+
+        // Budget Component
+        function Budget() {
+            const [transactions, setTransactions] = useState(() => {
+                const saved = localStorage.getItem('familyBudget');
+                return saved ? JSON.parse(saved) : [];
+            });
+            const [isAdding, setIsAdding] = useState(false);
+            const [formData, setFormData] = useState({
+                title: '',
+                amount: '',
+                type: 'expense',
+                category: 'food',
+            });
+
+            const categories = [
+                { value: 'food', label: 'Їжа', icon: 'utensils', color: 'text-orange-500' },
+                { value: 'transport', label: 'Транспорт', icon: 'car', color: 'text-blue-500' },
+                { value: 'utilities', label: 'Комунальні', icon: 'home', color: 'text-green-500' },
+                { value: 'entertainment', label: 'Розваги', icon: 'smile', color: 'text-purple-500' },
+                { value: 'health', label: 'Здоров\'я', icon: 'heart', color: 'text-red-500' },
+                { value: 'salary', label: 'Зарплата', icon: 'briefcase', color: 'text-emerald-500' },
+                { value: 'other', label: 'Інше', icon: 'more-horizontal', color: 'text-gray-500' },
+            ];
+
+            const saveTransactions = (newTransactions) => {
+                setTransactions(newTransactions);
+                localStorage.setItem('familyBudget', JSON.stringify(newTransactions));
+            };
+
+            const handleSubmit = (e) => {
+                e.preventDefault();
+                const transaction = {
+                    id: Date.now().toString(),
+                    ...formData,
+                    amount: parseFloat(formData.amount),
+                    date: new Date().toISOString(),
+                };
+                saveTransactions([transaction, ...transactions]);
+                setFormData({ title: '', amount: '', type: 'expense', category: 'food' });
+                setIsAdding(false);
+            };
+
+            const handleDelete = (id) => {
+                saveTransactions(transactions.filter(t => t.id !== id));
+            };
+
+            const totalIncome = transactions
+                .filter(t => t.type === 'income')
+                .reduce((sum, t) => sum + t.amount, 0);
+            
+            const totalExpense = transactions
+                .filter(t => t.type === 'expense')
+                .reduce((sum, t) => sum + t.amount, 0);
+            
+            const balance = totalIncome - totalExpense;
+
+            return (
+                <div className="space-y-6">
+                    <div className="flex items-center justify-between">
+                        <motion.h2
+                            initial={{ x: -20 }}
+                            animate={{ x: 0 }}
+                            className="flex items-center gap-3 text-2xl font-black bg-gradient-to-r from-yellow-600 to-orange-600 bg-clip-text text-transparent"
+                        >
+                            <Icon name="dollar-sign" className="w-8 h-8 text-yellow-500" />
+                            Сімейний бюджет
+                        </motion.h2>
+                        <motion.button
+                            whileHover={{ scale: 1.05 }}
+                            whileTap={{ scale: 0.95 }}
+                            onClick={() => setIsAdding(!isAdding)}
+                            className="px-5 py-2.5 bg-gradient-to-r from-yellow-500 to-orange-500 text-white rounded-xl hover:shadow-lg hover:shadow-yellow-500/50 flex items-center gap-2 font-semibold"
+                        >
+                            <Icon name="plus" className="w-5 h-5" />
+                            Додати транзакцію
+                        </motion.button>
+                    </div>
+
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                        <motion.div
+                            initial={{ opacity: 0, y: 20 }}
+                            animate={{ opacity: 1, y: 0 }}
+                            className="bg-gradient-to-br from-green-500 to-emerald-500 rounded-2xl p-6 text-white shadow-xl"
+                        >
+                            <Icon name="trending-up" className="w-8 h-8 mb-2" />
+                            <p className="text-sm opacity-90">Надходження</p>
+                            <p className="text-3xl font-black">₴{totalIncome.toLocaleString()}</p>
+                        </motion.div>
+                        <motion.div
+                            initial={{ opacity: 0, y: 20 }}
+                            animate={{ opacity: 1, y: 0 }}
+                            transition={{ delay: 0.1 }}
+                            className="bg-gradient-to-br from-red-500 to-pink-500 rounded-2xl p-6 text-white shadow-xl"
+                        >
+                            <Icon name="trending-down" className="w-8 h-8 mb-2" />
+                            <p className="text-sm opacity-90">Витрати</p>
+                            <p className="text-3xl font-black">₴{totalExpense.toLocaleString()}</p>
+                        </motion.div>
+                        <motion.div
+                            initial={{ opacity: 0, y: 20 }}
+                            animate={{ opacity: 1, y: 0 }}
+                            transition={{ delay: 0.2 }}
+                            className={`bg-gradient-to-br ${balance >= 0 ? 'from-blue-500 to-cyan-500' : 'from-orange-500 to-red-500'} rounded-2xl p-6 text-white shadow-xl`}
+                        >
+                            <Icon name="wallet" className="w-8 h-8 mb-2" />
+                            <p className="text-sm opacity-90">Баланс</p>
+                            <p className="text-3xl font-black">₴{balance.toLocaleString()}</p>
+                        </motion.div>
+                    </div>
+
+                    <AnimatePresence>
+                        {isAdding && (
+                            <motion.form
+                                initial={{ opacity: 0, height: 0 }}
+                                animate={{ opacity: 1, height: 'auto' }}
+                                exit={{ opacity: 0, height: 0 }}
+                                onSubmit={handleSubmit}
+                                className="bg-gradient-to-br from-yellow-50 to-orange-50 p-6 rounded-2xl space-y-4 border-2 border-yellow-200 shadow-lg overflow-hidden"
+                            >
+                                <div className="flex gap-3">
+                                    <input
+                                        type="text"
+                                        placeholder="Назва"
+                                        value={formData.title}
+                                        onChange={(e) => setFormData({ ...formData, title: e.target.value })}
+                                        required
+                                        className="flex-1 px-4 py-3 border-2 border-gray-200 rounded-xl focus:border-yellow-500 focus:ring-2 focus:ring-yellow-200 transition-all"
+                                    />
+                                    <input
+                                        type="number"
+                                        placeholder="Сума"
+                                        value={formData.amount}
+                                        onChange={(e) => setFormData({ ...formData, amount: e.target.value })}
+                                        required
+                                        className="w-32 px-4 py-3 border-2 border-gray-200 rounded-xl focus:border-yellow-500 focus:ring-2 focus:ring-yellow-200 transition-all"
+                                    />
+                                </div>
+                                <div className="flex gap-3">
+                                    <select
+                                        value={formData.type}
+                                        onChange={(e) => setFormData({ ...formData, type: e.target.value })}
+                                        className="flex-1 px-4 py-3 border-2 border-gray-200 rounded-xl focus:border-yellow-500 focus:ring-2 focus:ring-yellow-200 transition-all"
+                                    >
+                                        <option value="income">Надходження</option>
+                                        <option value="expense">Витрата</option>
+                                    </select>
+                                    <select
+                                        value={formData.category}
+                                        onChange={(e) => setFormData({ ...formData, category: e.target.value })}
+                                        className="flex-1 px-4 py-3 border-2 border-gray-200 rounded-xl focus:border-yellow-500 focus:ring-2 focus:ring-yellow-200 transition-all"
+                                    >
+                                        {categories.map(cat => (
+                                            <option key={cat.value} value={cat.value}>{cat.label}</option>
+                                        ))}
+                                    </select>
+                                </div>
+                                <div className="flex gap-3">
+                                    <motion.button
+                                        whileHover={{ scale: 1.02 }}
+                                        whileTap={{ scale: 0.98 }}
+                                        type="submit"
+                                        className="px-6 py-3 bg-gradient-to-r from-yellow-500 to-orange-500 text-white rounded-xl hover:shadow-lg hover:shadow-yellow-500/50 font-semibold"
+                                    >
+                                        Додати
+                                    </motion.button>
+                                    <motion.button
+                                        whileHover={{ scale: 1.02 }}
+                                        whileTap={{ scale: 0.98 }}
+                                        type="button"
+                                        onClick={() => setIsAdding(false)}
+                                        className="px-6 py-3 bg-gray-200 text-gray-700 rounded-xl hover:bg-gray-300 font-semibold"
+                                    >
+                                        Скасувати
+                                    </motion.button>
+                                </div>
+                            </motion.form>
+                        )}
+                    </AnimatePresence>
+
+                    <div className="space-y-3">
+                        {transactions.length === 0 ? (
+                            <motion.div
+                                initial={{ opacity: 0 }}
+                                animate={{ opacity: 1 }}
+                                className="text-center py-16 bg-gradient-to-br from-gray-50 to-gray-100 rounded-2xl border-2 border-dashed border-gray-300"
+                            >
+                                <Icon name="dollar-sign" className="w-16 h-16 text-gray-300 mx-auto mb-3" />
+                                <p className="text-gray-500 text-lg">Транзакцій ще немає</p>
+                                <p className="text-gray-400 text-sm">Додайте першу транзакцію!</p>
+                            </motion.div>
+                        ) : (
+                            <AnimatePresence>
+                                {transactions.map((transaction, index) => {
+                                    const category = categories.find(c => c.value === transaction.category);
+                                    return (
+                                        <motion.div
+                                            key={transaction.id}
+                                            initial={{ opacity: 0, x: -20 }}
+                                            animate={{ opacity: 1, x: 0 }}
+                                            exit={{ opacity: 0, x: 20 }}
+                                            transition={{ delay: index * 0.05 }}
+                                            whileHover={{ scale: 1.01, x: 5 }}
+                                            className={`bg-white border-2 rounded-2xl p-5 flex items-center justify-between hover:shadow-xl transition-all group ${
+                                                transaction.type === 'income' ? 'border-green-200' : 'border-red-200'
+                                            }`}
+                                        >
+                                            <div className="flex items-center gap-4 flex-1">
+                                                <div className={`w-12 h-12 rounded-xl ${transaction.type === 'income' ? 'bg-green-100' : 'bg-red-100'} flex items-center justify-center`}>
+                                                    <Icon name={category?.icon || 'circle'} className={`w-6 h-6 ${category?.color}`} />
+                                                </div>
+                                                <div className="flex-1">
+                                                    <p className="font-bold text-lg">{transaction.title}</p>
+                                                    <p className="text-sm text-gray-500">{category?.label}</p>
+                                                </div>
+                                                <p className={`text-2xl font-black ${transaction.type === 'income' ? 'text-green-500' : 'text-red-500'}`}>
+                                                    {transaction.type === 'income' ? '+' : '-'}₴{transaction.amount.toLocaleString()}
+                                                </p>
+                                            </div>
+                                            <motion.button
+                                                whileHover={{ scale: 1.1 }}
+                                                whileTap={{ scale: 0.9 }}
+                                                onClick={() => handleDelete(transaction.id)}
+                                                className="p-2 text-red-500 hover:bg-red-50 rounded-lg opacity-0 group-hover:opacity-100 transition-all ml-3"
+                                            >
+                                                <Icon name="trash-2" className="w-5 h-5" />
+                                            </motion.button>
+                                        </motion.div>
+                                    );
+                                })}
+                            </AnimatePresence>
+                        )}
+                    </div>
+                </div>
+            );
+        }
+
+        // MenuPlanner Component
+        function MenuPlanner() {
+            const daysOfWeek = ['Понеділок', 'Вівторок', 'Середа', 'Четвер', 'П\'ятниця', 'Субота', 'Неділя'];
+            
+            const [meals, setMeals] = useState(() => {
+                const saved = localStorage.getItem('familyMenuPlanner');
+                return saved ? JSON.parse(saved) : daysOfWeek.map(day => ({
+                    id: day,
+                    day,
+                    breakfast: '',
+                    lunch: '',
+                    dinner: '',
+                    ingredients: [],
+                }));
+            });
+            const [editingDay, setEditingDay] = useState(null);
+            const [formData, setFormData] = useState({
+                breakfast: '',
+                lunch: '',
+                dinner: '',
+                ingredients: '',
+            });
+
+            const saveMeals = (newMeals) => {
+                setMeals(newMeals);
+                localStorage.setItem('familyMenuPlanner', JSON.stringify(newMeals));
+            };
+
+            const handleEdit = (meal) => {
+                setEditingDay(meal.day);
+                setFormData({
+                    breakfast: meal.breakfast,
+                    lunch: meal.lunch,
+                    dinner: meal.dinner,
+                    ingredients: meal.ingredients.join(', '),
+                });
+            };
+
+            const handleSubmit = (e) => {
+                e.preventDefault();
+                if (!editingDay) return;
+
+                const updated = meals.map(meal =>
+                    meal.day === editingDay
+                        ? {
+                            ...meal,
+                            breakfast: formData.breakfast,
+                            lunch: formData.lunch,
+                            dinner: formData.dinner,
+                            ingredients: formData.ingredients
+                                .split(',')
+                                .map(i => i.trim())
+                                .filter(i => i),
+                        }
+                        : meal
+                );
+                saveMeals(updated);
+                setEditingDay(null);
+                setFormData({ breakfast: '', lunch: '', dinner: '', ingredients: '' });
+            };
+
+            const handleClear = (day) => {
+                const updated = meals.map(meal =>
+                    meal.day === day
+                        ? { ...meal, breakfast: '', lunch: '', dinner: '', ingredients: [] }
+                        : meal
+                );
+                saveMeals(updated);
+            };
+
+            const getAllIngredients = () => {
+                const allIngredients = new Set();
+                meals.forEach(meal => {
+                    meal.ingredients.forEach(ing => allIngredients.add(ing));
+                });
+                return Array.from(allIngredients).filter(i => i);
+            };
+
+            const allIngredients = getAllIngredients();
+
+            return (
+                <div className="space-y-6">
+                    <motion.h2
+                        initial={{ x: -20 }}
+                        animate={{ x: 0 }}
+                        className="flex items-center gap-3 text-2xl font-black bg-gradient-to-r from-orange-600 to-pink-600 bg-clip-text text-transparent"
+                    >
+                        <Icon name="utensils-crossed" className="w-8 h-8 text-orange-500" />
+                        Меню на тиждень
+                    </motion.h2>
+
+                    <AnimatePresence>
+                        {editingDay && (
+                            <motion.form
+                                initial={{ opacity: 0, height: 0 }}
+                                animate={{ opacity: 1, height: 'auto' }}
+                                exit={{ opacity: 0, height: 0 }}
+                                onSubmit={handleSubmit}
+                                className="bg-gradient-to-br from-orange-50 to-pink-50 p-6 rounded-2xl space-y-4 border-2 border-orange-200 shadow-lg overflow-hidden"
+                            >
+                                <h3 className="font-black text-xl text-orange-600">{editingDay}</h3>
+                                <div className="space-y-3">
+                                    <div className="flex items-center gap-3">
+                                        <Icon name="coffee" className="w-5 h-5 text-amber-500" />
+                                        <input
+                                            type="text"
+                                            placeholder="Сніданок"
+                                            value={formData.breakfast}
+                                            onChange={(e) => setFormData({ ...formData, breakfast: e.target.value })}
+                                            className="flex-1 px-4 py-3 border-2 border-gray-200 rounded-xl focus:border-orange-500 focus:ring-2 focus:ring-orange-200 transition-all"
+                                        />
+                                    </div>
+                                    <div className="flex items-center gap-3">
+                                        <Icon name="salad" className="w-5 h-5 text-green-500" />
+                                        <input
+                                            type="text"
+                                            placeholder="Обід"
+                                            value={formData.lunch}
+                                            onChange={(e) => setFormData({ ...formData, lunch: e.target.value })}
+                                            className="flex-1 px-4 py-3 border-2 border-gray-200 rounded-xl focus:border-orange-500 focus:ring-2 focus:ring-orange-200 transition-all"
+                                        />
+                                    </div>
+                                    <div className="flex items-center gap-3">
+                                        <Icon name="pizza" className="w-5 h-5 text-red-500" />
+                                        <input
+                                            type="text"
+                                            placeholder="Вечеря"
+                                            value={formData.dinner}
+                                            onChange={(e) => setFormData({ ...formData, dinner: e.target.value })}
+                                            className="flex-1 px-4 py-3 border-2 border-gray-200 rounded-xl focus:border-orange-500 focus:ring-2 focus:ring-orange-200 transition-all"
+                                        />
+                                    </div>
+                                    <textarea
+                                        placeholder="Інгредієнти (через кому)"
+                                        value={formData.ingredients}
+                                        onChange={(e) => setFormData({ ...formData, ingredients: e.target.value })}
+                                        className="w-full px-4 py-3 border-2 border-gray-200 rounded-xl focus:border-orange-500 focus:ring-2 focus:ring-orange-200 transition-all"
+                                        rows="3"
+                                    />
+                                </div>
+                                <div className="flex gap-3">
+                                    <motion.button
+                                        whileHover={{ scale: 1.02 }}
+                                        whileTap={{ scale: 0.98 }}
+                                        type="submit"
+                                        className="px-6 py-3 bg-gradient-to-r from-orange-500 to-pink-500 text-white rounded-xl hover:shadow-lg hover:shadow-orange-500/50 font-semibold"
+                                    >
+                                        Зберегти
+                                    </motion.button>
+                                    <motion.button
+                                        whileHover={{ scale: 1.02 }}
+                                        whileTap={{ scale: 0.98 }}
+                                        type="button"
+                                        onClick={() => {
+                                            setEditingDay(null);
+                                            setFormData({ breakfast: '', lunch: '', dinner: '', ingredients: '' });
+                                        }}
+                                        className="px-6 py-3 bg-gray-200 text-gray-700 rounded-xl hover:bg-gray-300 font-semibold"
+                                    >
+                                        Скасувати
+                                    </motion.button>
+                                </div>
+                            </motion.form>
+                        )}
+                    </AnimatePresence>
+
+                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                        {meals.map((meal, index) => {
+                            const hasContent = meal.breakfast || meal.lunch || meal.dinner;
+                            return (
+                                <motion.div
+                                    key={meal.id}
+                                    initial={{ opacity: 0, y: 20 }}
+                                    animate={{ opacity: 1, y: 0 }}
+                                    transition={{ delay: index * 0.05 }}
+                                    whileHover={{ scale: 1.02, y: -3 }}
+                                    className={`bg-white border-2 rounded-2xl p-5 hover:shadow-xl transition-all group ${
+                                        hasContent ? 'border-orange-200' : 'border-gray-100'
+                                    }`}
+                                >
+                                    <div className="flex items-center justify-between mb-4">
+                                        <h3 className="font-black text-xl bg-gradient-to-r from-orange-600 to-pink-600 bg-clip-text text-transparent">
+                                            {meal.day}
+                                        </h3>
+                                        <div className="flex gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                                            <motion.button
+                                                whileHover={{ scale: 1.1 }}
+                                                whileTap={{ scale: 0.9 }}
+                                                onClick={() => handleEdit(meal)}
+                                                className="p-2 text-orange-500 hover:bg-orange-50 rounded-lg transition-colors"
+                                            >
+                                                <Icon name="edit-2" className="w-4 h-4" />
+                                            </motion.button>
+                                            <motion.button
+                                                whileHover={{ scale: 1.1 }}
+                                                whileTap={{ scale: 0.9 }}
+                                                onClick={() => handleClear(meal.day)}
+                                                className="p-2 text-red-500 hover:bg-red-50 rounded-lg transition-colors"
+                                            >
+                                                <Icon name="trash-2" className="w-4 h-4" />
+                                            </motion.button>
+                                        </div>
+                                    </div>
+                                    <div className="space-y-3">
+                                        <div className="flex items-start gap-3">
+                                            <Icon name="coffee" className="w-5 h-5 text-amber-500 mt-0.5" />
+                                            <div>
+                                                <p className="text-xs text-gray-500 font-semibold">Сніданок</p>
+                                                <p className="font-medium">{meal.breakfast || <span className="text-gray-400 italic">Не заплановано</span>}</p>
+                                            </div>
+                                        </div>
+                                        <div className="flex items-start gap-3">
+                                            <Icon name="salad" className="w-5 h-5 text-green-500 mt-0.5" />
+                                            <div>
+                                                <p className="text-xs text-gray-500 font-semibold">Обід</p>
+                                                <p className="font-medium">{meal.lunch || <span className="text-gray-400 italic">Не заплановано</span>}</p>
+                                            </div>
+                                        </div>
+                                        <div className="flex items-start gap-3">
+                                            <Icon name="pizza" className="w-5 h-5 text-red-500 mt-0.5" />
+                                            <div>
+                                                <p className="text-xs text-gray-500 font-semibold">Вечеря</p>
+                                                <p className="font-medium">{meal.dinner || <span className="text-gray-400 italic">Не заплановано</span>}</p>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </motion.div>
+                            );
+                        })}
+                    </div>
+
+                    <AnimatePresence>
+                        {allIngredients.length > 0 && (
+                            <motion.div
+                                initial={{ opacity: 0, y: 20 }}
+                                animate={{ opacity: 1, y: 0 }}
+                                exit={{ opacity: 0, y: -20 }}
+                                className="bg-gradient-to-br from-green-500 to-emerald-500 border-2 border-green-400 rounded-2xl p-6 text-white shadow-2xl"
+                            >
+                                <h3 className="font-black text-xl flex items-center gap-3 mb-4">
+                                    <Icon name="shopping-cart" className="w-6 h-6" />
+                                    Список інгредієнтів на тиждень
+                                </h3>
+                                <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
+                                    {allIngredients.map((ingredient, index) => (
+                                        <motion.div
+                                            key={index}
+                                            initial={{ opacity: 0, scale: 0.8 }}
+                                            animate={{ opacity: 1, scale: 1 }}
+                                            transition={{ delay: index * 0.05 }}
+                                            className="flex items-center gap-2 bg-white/20 backdrop-blur-sm px-3 py-2 rounded-lg"
+                                        >
+                                            <div className="w-2 h-2 bg-white rounded-full" />
+                                            <span className="font-medium">{ingredient}</span>
+                                        </motion.div>
+                                    ))}
+                                </div>
+                            </motion.div>
+                        )}
+                    </AnimatePresence>
+                </div>
+            );
+        }
+
+        // Archive Component
+        function Archive() {
+            const [items, setItems] = useState(() => {
+                const saved = localStorage.getItem('familyArchive');
+                return saved ? JSON.parse(saved) : [
+                    {
+                        id: '1',
+                        title: 'Wi-Fi пароль',
+                        type: 'password',
+                        content: 'MyHomeNetwork2024',
+                        date: new Date().toISOString(),
+                    },
+                ];
+            });
+            const [isAdding, setIsAdding] = useState(false);
+            const [formData, setFormData] = useState({
+                title: '',
+                type: 'note',
+                content: '',
+            });
+            const [searchQuery, setSearchQuery] = useState('');
+
+            const itemTypes = [
+                { value: 'document', label: 'Документ', icon: 'file-text', color: 'from-blue-500 to-cyan-500', badge: 'bg-blue-500' },
+                { value: 'password', label: 'Пароль', icon: 'key', color: 'from-red-500 to-pink-500', badge: 'bg-red-500' },
+                { value: 'note', label: 'Нотатка', icon: 'info', color: 'from-green-500 to-emerald-500', badge: 'bg-green-500' },
+                { value: 'instruction', label: 'Інструкція', icon: 'file-text', color: 'from-purple-500 to-violet-500', badge: 'bg-purple-500' },
+            ];
+
+            const saveItems = (newItems) => {
+                setItems(newItems);
+                localStorage.setItem('familyArchive', JSON.stringify(newItems));
+            };
+
+            const handleSubmit = (e) => {
+                e.preventDefault();
+                const item = {
+                    id: Date.now().toString(),
+                    ...formData,
+                    date: new Date().toISOString(),
+                };
+                saveItems([...items, item]);
+                setFormData({ title: '', type: 'note', content: '' });
+                setIsAdding(false);
+            };
+
+            const handleDelete = (id) => {
+                saveItems(items.filter(item => item.id !== id));
+            };
+
+            const filteredItems = items.filter(item =>
+                item.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
+                item.content.toLowerCase().includes(searchQuery.toLowerCase())
+            );
+
+            return (
+                <div className="space-y-6">
+                    <div className="flex items-center justify-between">
+                        <motion.h2
+                            initial={{ x: -20 }}
+                            animate={{ x: 0 }}
+                            className="flex items-center gap-3 text-2xl font-black bg-gradient-to-r from-purple-600 to-pink-600 bg-clip-text text-transparent"
+                        >
+                            <Icon name="archive" className="w-8 h-8 text-purple-500" />
+                            Сімейний архів
+                        </motion.h2>
+                        <motion.button
+                            whileHover={{ scale: 1.05 }}
+                            whileTap={{ scale: 0.95 }}
+                            onClick={() => setIsAdding(!isAdding)}
+                            className="px-5 py-2.5 bg-gradient-to-r from-purple-500 to-pink-500 text-white rounded-xl hover:shadow-lg hover:shadow-purple-500/50 flex items-center gap-2 font-semibold"
+                        >
+                            <Icon name="plus" className="w-5 h-5" />
+                            Додати запис
+                        </motion.button>
+                    </div>
+
+                    <motion.div
+                        initial={{ opacity: 0, y: 20 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        className="relative"
+                    >
+                        <Icon name="search" className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
+                        <input
+                            type="text"
+                            placeholder="Пошук в архіві..."
+                            value={searchQuery}
+                            onChange={(e) => setSearchQuery(e.target.value)}
+                            className="w-full pl-12 pr-4 py-3 border-2 border-gray-200 rounded-xl focus:border-purple-500 focus:ring-2 focus:ring-purple-200 transition-all"
+                        />
+                    </motion.div>
+
+                    <AnimatePresence>
+                        {isAdding && (
+                            <motion.form
+                                initial={{ opacity: 0, height: 0 }}
+                                animate={{ opacity: 1, height: 'auto' }}
+                                exit={{ opacity: 0, height: 0 }}
+                                onSubmit={handleSubmit}
+                                className="bg-gradient-to-br from-purple-50 to-pink-50 p-6 rounded-2xl space-y-4 border-2 border-purple-200 shadow-lg overflow-hidden"
+                            >
+                                <input
+                                    type="text"
+                                    placeholder="Назва"
+                                    value={formData.title}
+                                    onChange={(e) => setFormData({ ...formData, title: e.target.value })}
+                                    required
+                                    className="w-full px-4 py-3 border-2 border-gray-200 rounded-xl focus:border-purple-500 focus:ring-2 focus:ring-purple-200 transition-all"
+                                />
+                                <select
+                                    value={formData.type}
+                                    onChange={(e) => setFormData({ ...formData, type: e.target.value })}
+                                    className="w-full px-4 py-3 border-2 border-gray-200 rounded-xl focus:border-purple-500 focus:ring-2 focus:ring-purple-200 transition-all"
+                                >
+                                    {itemTypes.map(type => (
+                                        <option key={type.value} value={type.value}>{type.label}</option>
+                                    ))}
+                                </select>
+                                <textarea
+                                    placeholder="Вміст / опис / текст"
+                                    value={formData.content}
+                                    onChange={(e) => setFormData({ ...formData, content: e.target.value })}
+                                    required
+                                    className="w-full px-4 py-3 border-2 border-gray-200 rounded-xl focus:border-purple-500 focus:ring-2 focus:ring-purple-200 transition-all"
+                                    rows="4"
+                                />
+                                <div className="flex gap-3">
+                                    <motion.button
+                                        whileHover={{ scale: 1.02 }}
+                                        whileTap={{ scale: 0.98 }}
+                                        type="submit"
+                                        className="px-6 py-3 bg-gradient-to-r from-purple-500 to-pink-500 text-white rounded-xl hover:shadow-lg hover:shadow-purple-500/50 font-semibold"
+                                    >
+                                        Додати
+                                    </motion.button>
+                                    <motion.button
+                                        whileHover={{ scale: 1.02 }}
+                                        whileTap={{ scale: 0.98 }}
+                                        type="button"
+                                        onClick={() => setIsAdding(false)}
+                                        className="px-6 py-3 bg-gray-200 text-gray-700 rounded-xl hover:bg-gray-300 font-semibold"
+                                    >
+                                        Скасувати
+                                    </motion.button>
+                                </div>
+                            </motion.form>
+                        )}
+                    </AnimatePresence>
+
+                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                        {filteredItems.length === 0 ? (
+                            <motion.div
+                                initial={{ opacity: 0 }}
+                                animate={{ opacity: 1 }}
+                                className="col-span-full text-center py-16 bg-gradient-to-br from-gray-50 to-gray-100 rounded-2xl border-2 border-dashed border-gray-300"
+                            >
+                                <Icon name="archive" className="w-16 h-16 text-gray-300 mx-auto mb-3" />
+                                <p className="text-gray-500 text-lg">
+                                    {searchQuery ? 'Нічого не знайдено' : 'Архів порожній'}
+                                </p>
+                                <p className="text-gray-400 text-sm">
+                                    {searchQuery ? 'Спробуйте інший запит' : 'Додайте перший запис!'}
+                                </p>
+                            </motion.div>
+                        ) : (
+                            filteredItems.map((item, index) => {
+                                const itemType = itemTypes.find(t => t.value === item.type);
+                                return (
+                                    <motion.div
+                                        key={item.id}
+                                        initial={{ opacity: 0, scale: 0.9 }}
+                                        animate={{ opacity: 1, scale: 1 }}
+                                        transition={{ delay: index * 0.05 }}
+                                        whileHover={{ scale: 1.03, y: -5 }}
+                                        className="bg-white border-2 border-gray-100 rounded-2xl p-5 hover:shadow-xl hover:border-purple-200 transition-all group"
+                                    >
+                                        <div className="flex items-start justify-between mb-4">
+                                            <div className="flex items-center gap-3 flex-1">
+                                                <motion.div
+                                                    whileHover={{ rotate: 360 }}
+                                                    transition={{ duration: 0.5 }}
+                                                    className={`w-12 h-12 bg-gradient-to-br ${itemType?.color} rounded-xl flex items-center justify-center shadow-md`}
+                                                >
+                                                    <Icon name={itemType?.icon} className="w-6 h-6 text-white" />
+                                                </motion.div>
+                                                <div className="flex-1">
+                                                    <h3 className="font-bold text-lg">{item.title}</h3>
+                                                    <span className={`text-xs px-2 py-1 rounded-full ${itemType?.badge} text-white font-semibold inline-block mt-1`}>
+                                                        {itemType?.label}
+                                                    </span>
+                                                </div>
+                                            </div>
+                                            <motion.button
+                                                whileHover={{ scale: 1.1 }}
+                                                whileTap={{ scale: 0.9 }}
+                                                onClick={() => handleDelete(item.id)}
+                                                className="p-2 text-red-500 hover:bg-red-50 rounded-lg opacity-0 group-hover:opacity-100 transition-all"
+                                            >
+                                                <Icon name="trash-2" className="w-5 h-5" />
+                                            </motion.button>
+                                        </div>
+                                        <div className="bg-gray-50 rounded-xl p-3">
+                                            <p className="text-sm text-gray-700 whitespace-pre-wrap break-words leading-relaxed">
+                                                {item.content}
+                                            </p>
+                                        </div>
+                                    </motion.div>
+                                );
+                            })
+                        )}
+                    </div>
+                </div>
+            );
+        }
+
+        // Tasks Component
+        function Tasks() {
+            const [tasks, setTasks] = useState(() => {
+                const saved = localStorage.getItem('familyTasks');
+                return saved ? JSON.parse(saved) : [];
+            });
+            const [isAdding, setIsAdding] = useState(false);
+            const [formData, setFormData] = useState({
+                title: '',
+                assignedTo: '',
+                priority: 'medium',
+            });
+
+            const priorities = [
+                { value: 'low', label: 'Низький', color: 'from-green-500 to-emerald-500', badge: 'bg-green-500' },
+                { value: 'medium', label: 'Середній', color: 'from-yellow-500 to-orange-500', badge: 'bg-yellow-500' },
+                { value: 'high', label: 'Високий', color: 'from-red-500 to-pink-500', badge: 'bg-red-500' },
+            ];
+
+            const saveTasks = (newTasks) => {
+                setTasks(newTasks);
+                localStorage.setItem('familyTasks', JSON.stringify(newTasks));
+            };
+
+            const handleSubmit = (e) => {
+                e.preventDefault();
+                const task = {
+                    id: Date.now().toString(),
+                    ...formData,
+                    completed: false,
+                };
+                saveTasks([...tasks, task]);
+                setFormData({ title: '', assignedTo: '', priority: 'medium' });
+                setIsAdding(false);
+            };
+
+            const toggleComplete = (id) => {
+                saveTasks(tasks.map(task =>
+                    task.id === id ? { ...task, completed: !task.completed } : task
+                ));
+            };
+
+            const handleDelete = (id) => {
+                saveTasks(tasks.filter(task => task.id !== id));
+            };
+
+            const activeTasks = tasks.filter(task => !task.completed);
+            const completedTasks = tasks.filter(task => task.completed);
+
+            return (
+                <div className="space-y-6">
+                    <div className="flex items-center justify-between">
+                        <motion.h2
+                            initial={{ x: -20 }}
+                            animate={{ x: 0 }}
+                            className="flex items-center gap-3 text-2xl font-black bg-gradient-to-r from-blue-600 to-indigo-600 bg-clip-text text-transparent"
+                        >
+                            <Icon name="list-todo" className="w-8 h-8 text-blue-500" />
+                            Домашні справи
+                        </motion.h2>
+                        <motion.button
+                            whileHover={{ scale: 1.05 }}
+                            whileTap={{ scale: 0.95 }}
+                            onClick={() => setIsAdding(!isAdding)}
+                            className="px-5 py-2.5 bg-gradient-to-r from-blue-500 to-indigo-500 text-white rounded-xl hover:shadow-lg hover:shadow-blue-500/50 flex items-center gap-2 font-semibold"
+                        >
+                            <Icon name="plus" className="w-5 h-5" />
+                            Додати справу
+                        </motion.button>
+                    </div>
+
+                    <AnimatePresence>
+                        {isAdding && (
+                            <motion.form
+                                initial={{ opacity: 0, height: 0 }}
+                                animate={{ opacity: 1, height: 'auto' }}
+                                exit={{ opacity: 0, height: 0 }}
+                                onSubmit={handleSubmit}
+                                className="bg-gradient-to-br from-blue-50 to-indigo-50 p-6 rounded-2xl space-y-4 border-2 border-blue-200 shadow-lg overflow-hidden"
+                            >
+                                <input
+                                    type="text"
+                                    placeholder="Назва справи"
+                                    value={formData.title}
+                                    onChange={(e) => setFormData({ ...formData, title: e.target.value })}
+                                    required
+                                    className="w-full px-4 py-3 border-2 border-gray-200 rounded-xl focus:border-blue-500 focus:ring-2 focus:ring-blue-200 transition-all"
+                                />
+                                <div className="flex gap-3">
+                                    <input
+                                        type="text"
+                                        placeholder="Кому доручено?"
+                                        value={formData.assignedTo}
+                                        onChange={(e) => setFormData({ ...formData, assignedTo: e.target.value })}
+                                        required
+                                        className="flex-1 px-4 py-3 border-2 border-gray-200 rounded-xl focus:border-blue-500 focus:ring-2 focus:ring-blue-200 transition-all"
+                                    />
+                                    <select
+                                        value={formData.priority}
+                                        onChange={(e) => setFormData({ ...formData, priority: e.target.value })}
+                                        className="px-4 py-3 border-2 border-gray-200 rounded-xl focus:border-blue-500 focus:ring-2 focus:ring-blue-200 transition-all"
+                                    >
+                                        {priorities.map(p => (
+                                            <option key={p.value} value={p.value}>{p.label}</option>
+                                        ))}
+                                    </select>
+                                </div>
+                                <div className="flex gap-3">
+                                    <motion.button
+                                        whileHover={{ scale: 1.02 }}
+                                        whileTap={{ scale: 0.98 }}
+                                        type="submit"
+                                        className="px-6 py-3 bg-gradient-to-r from-blue-500 to-indigo-500 text-white rounded-xl hover:shadow-lg hover:shadow-blue-500/50 font-semibold"
+                                    >
+                                        Додати
+                                    </motion.button>
+                                    <motion.button
+                                        whileHover={{ scale: 1.02 }}
+                                        whileTap={{ scale: 0.98 }}
+                                        type="button"
+                                        onClick={() => setIsAdding(false)}
+                                        className="px-6 py-3 bg-gray-200 text-gray-700 rounded-xl hover:bg-gray-300 font-semibold"
+                                    >
+                                        Скасувати
+                                    </motion.button>
+                                </div>
+                            </motion.form>
+                        )}
+                    </AnimatePresence>
+
+                    <div className="space-y-6">
+                        {activeTasks.length > 0 && (
+                            <div>
+                                <h3 className="font-black text-lg mb-4 flex items-center gap-2 text-gray-700">
+                                    <Icon name="target" className="w-5 h-5 text-blue-500" />
+                                    Активні справи ({activeTasks.length})
+                                </h3>
+                                <div className="space-y-3">
+                                    {activeTasks.map((task, index) => {
+                                        const priority = priorities.find(p => p.value === task.priority);
+                                        return (
+                                            <motion.div
+                                                key={task.id}
+                                                initial={{ opacity: 0, x: -20 }}
+                                                animate={{ opacity: 1, x: 0 }}
+                                                transition={{ delay: index * 0.05 }}
+                                                whileHover={{ scale: 1.01, x: 5 }}
+                                                className="bg-white border-2 border-gray-100 rounded-2xl p-5 flex items-center justify-between hover:shadow-xl hover:border-blue-200 transition-all group"
+                                            >
+                                                <div className="flex items-center gap-4 flex-1">
+                                                    <motion.button
+                                                        whileHover={{ scale: 1.2 }}
+                                                        whileTap={{ scale: 0.9 }}
+                                                        onClick={() => toggleComplete(task.id)}
+                                                        className="w-7 h-7 border-2 border-gray-300 rounded-lg hover:border-green-500 flex items-center justify-center transition-all"
+                                                    >
+                                                        {task.completed && <Icon name="check" className="w-5 h-5 text-green-500" />}
+                                                    </motion.button>
+                                                    <div className="flex-1">
+                                                        <p className="font-bold text-lg">{task.title}</p>
+                                                        <div className="flex gap-3 items-center mt-1">
+                                                            <span className="text-sm font-semibold text-blue-500">{task.assignedTo}</span>
+                                                            <span className={`text-xs px-3 py-1 rounded-full ${priority?.badge} text-white font-semibold shadow-sm`}>
+                                                                {priority?.label}
+                                                            </span>
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                                <motion.button
+                                                    whileHover={{ scale: 1.1 }}
+                                                    whileTap={{ scale: 0.9 }}
+                                                    onClick={() => handleDelete(task.id)}
+                                                    className="p-2 text-red-500 hover:bg-red-50 rounded-lg opacity-0 group-hover:opacity-100 transition-all"
+                                                >
+                                                    <Icon name="trash-2" className="w-5 h-5" />
+                                                </motion.button>
+                                            </motion.div>
+                                        );
+                                    })}
+                                </div>
+                            </div>
+                        )}
+
+                        {completedTasks.length > 0 && (
+                            <div>
+                                <h3 className="font-black text-lg mb-4 flex items-center gap-2 text-gray-700">
+                                    <Icon name="check" className="w-5 h-5 text-green-500" />
+                                    Виконано ({completedTasks.length})
+                                </h3>
+                                <div className="space-y-3">
+                                    {completedTasks.map((task, index) => {
+                                        const priority = priorities.find(p => p.value === task.priority);
+                                        return (
+                                            <motion.div
+                                                key={task.id}
+                                                initial={{ opacity: 0 }}
+                                                animate={{ opacity: 1 }}
+                                                transition={{ delay: index * 0.05 }}
+                                                className="bg-green-50 border-2 border-green-200 rounded-2xl p-5 flex items-center justify-between"
+                                            >
+                                                <div className="flex items-center gap-4 flex-1">
+                                                    <motion.button
+                                                        whileHover={{ scale: 1.2 }}
+                                                        whileTap={{ scale: 0.9 }}
+                                                        onClick={() => toggleComplete(task.id)}
+                                                        className="w-7 h-7 border-2 border-green-500 rounded-lg flex items-center justify-center bg-green-500"
+                                                    >
+                                                        <Icon name="check" className="w-5 h-5 text-white" />
+                                                    </motion.button>
+                                                    <div className="flex-1">
+                                                        <p className="line-through text-gray-500 font-semibold text-lg">{task.title}</p>
+                                                        <div className="flex gap-3 items-center mt-1">
+                                                            <span className="text-sm text-gray-400">{task.assignedTo}</span>
+                                                            <span className={`text-xs px-3 py-1 rounded-full opacity-50 ${priority?.badge} text-white font-semibold`}>
+                                                                {priority?.label}
+                                                            </span>
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                                <motion.button
+                                                    whileHover={{ scale: 1.1 }}
+                                                    whileTap={{ scale: 0.9 }}
+                                                    onClick={() => handleDelete(task.id)}
+                                                    className="p-2 text-red-400 hover:bg-red-100 rounded-lg"
+                                                >
+                                                    <Icon name="trash-2" className="w-5 h-5" />
+                                                </motion.button>
+                                            </motion.div>
+                                        );
+                                    })}
+                                </div>
+                            </div>
+                        )}
+
+                        {tasks.length === 0 && (
+                            <motion.div
+                                initial={{ opacity: 0 }}
+                                animate={{ opacity: 1 }}
+                                className="text-center py-16 bg-gradient-to-br from-gray-50 to-gray-100 rounded-2xl border-2 border-dashed border-gray-300"
+                            >
+                                <Icon name="list-todo" className="w-16 h-16 text-gray-300 mx-auto mb-3" />
+                                <p className="text-gray-500 text-lg">Справ ще немає</p>
+                                <p className="text-gray-400 text-sm">Додайте першу справу!</p>
+                            </motion.div>
+                        )}
+                    </div>
+                </div>
+            );
+        }
+
+        // Chat Component
+        function Chat() {
+            const [messages, setMessages] = useState(() => {
+                const saved = localStorage.getItem('familyChat');
+                return saved ? JSON.parse(saved) : [];
+            });
+            const [newMessage, setNewMessage] = useState({ author: '', text: '' });
+            const messagesEndRef = useRef(null);
+
+            const avatarColors = [
+                'from-blue-500 to-cyan-500',
+                'from-purple-500 to-pink-500',
+                'from-green-500 to-emerald-500',
+                'from-orange-500 to-red-500',
+                'from-indigo-500 to-purple-500',
+            ];
+
+            const saveMessages = (newMessages) => {
+                setMessages(newMessages);
+                localStorage.setItem('familyChat', JSON.stringify(newMessages));
+            };
+
+            const handleSubmit = (e) => {
+                e.preventDefault();
+                if (!newMessage.text.trim()) return;
+
+                const message = {
+                    id: Date.now().toString(),
+                    author: newMessage.author || 'Хтось',
+                    text: newMessage.text,
+                    timestamp: new Date().toISOString(),
+                };
+                saveMessages([...messages, message]);
+                setNewMessage({ ...newMessage, text: '' });
+            };
+
+            const handleClearChat = () => {
+                if (confirm('Очистити всі повідомлення?')) {
+                    saveMessages([]);
+                }
+            };
+
+            useEffect(() => {
+                messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+            }, [messages]);
+
+            const getAvatarColor = (author) => {
+                const index = author.split('').reduce((acc, char) => acc + char.charCodeAt(0), 0);
+                return avatarColors[index % avatarColors.length];
+            };
+
+            return (
+                <div className="flex flex-col h-[650px] space-y-4">
+                    <div className="flex items-center justify-between">
+                        <motion.h2
+                            initial={{ x: -20 }}
+                            animate={{ x: 0 }}
+                            className="flex items-center gap-3 text-2xl font-black bg-gradient-to-r from-blue-600 to-purple-600 bg-clip-text text-transparent"
+                        >
+                            <Icon name="message-circle" className="w-8 h-8 text-blue-500" />
+                            Сімейний чат
+                        </motion.h2>
+                        {messages.length > 0 && (
+                            <motion.button
+                                whileHover={{ scale: 1.05 }}
+                                whileTap={{ scale: 0.95 }}
+                                onClick={handleClearChat}
+                                className="px-4 py-2 text-sm bg-red-100 text-red-600 rounded-xl hover:bg-red-200 flex items-center gap-2 font-semibold"
+                            >
+                                <Icon name="trash-2" className="w-4 h-4" />
+                                Очистити
+                            </motion.button>
+                        )}
+                    </div>
+
+                    <div className="flex-1 bg-gradient-to-br from-gray-50 to-gray-100 border-2 border-gray-200 rounded-2xl p-6 overflow-y-auto">
+                        {messages.length === 0 ? (
+                            <motion.div
+                                initial={{ opacity: 0 }}
+                                animate={{ opacity: 1 }}
+                                className="flex flex-col items-center justify-center h-full text-gray-400"
+                            >
+                                <Icon name="message-circle" className="w-20 h-20 mb-4 text-gray-300" />
+                                <p className="text-lg font-semibold">Повідомлень ще немає</p>
+                                <p className="text-sm">Напишіть перше повідомлення!</p>
+                            </motion.div>
+                        ) : (
+                            <div className="space-y-4">
+                                {messages.map((message, index) => (
+                                    <motion.div
+                                        key={message.id}
+                                        initial={{ opacity: 0, y: 20, scale: 0.95 }}
+                                        animate={{ opacity: 1, y: 0, scale: 1 }}
+                                        transition={{ delay: index * 0.05 }}
+                                        whileHover={{ scale: 1.01 }}
+                                        className="bg-white rounded-2xl p-4 shadow-md hover:shadow-xl transition-all border border-gray-100"
+                                    >
+                                        <div className="flex items-start gap-3">
+                                            <motion.div
+                                                whileHover={{ rotate: 360 }}
+                                                transition={{ duration: 0.5 }}
+                                                className={`w-12 h-12 rounded-xl bg-gradient-to-br ${getAvatarColor(message.author)} flex items-center justify-center shadow-lg flex-shrink-0`}
+                                            >
+                                                <Icon name="user" className="w-6 h-6 text-white" />
+                                            </motion.div>
+                                            <div className="flex-1">
+                                                <div className="flex items-center justify-between mb-2">
+                                                    <span className="font-black text-blue-600">{message.author}</span>
+                                                    <span className="text-xs text-gray-500 font-medium">
+                                                        {formatDateTime(message.timestamp)}
+                                                    </span>
+                                                </div>
+                                                <p className="text-gray-800 leading-relaxed">{message.text}</p>
+                                            </div>
+                                        </div>
+                                    </motion.div>
+                                ))}
+                                <div ref={messagesEndRef} />
+                            </div>
+                        )}
+                    </div>
+
+                    <motion.form
+                        initial={{ opacity: 0, y: 20 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        onSubmit={handleSubmit}
+                        className="bg-white border-2 border-gray-200 rounded-2xl p-4 space-y-3 shadow-lg"
+                    >
+                        <input
+                            type="text"
+                            placeholder="Ваше ім'я"
+                            value={newMessage.author}
+                            onChange={(e) => setNewMessage({ ...newMessage, author: e.target.value })}
+                            className="w-full px-4 py-2 border-2 border-gray-200 rounded-xl text-sm focus:border-blue-500 focus:ring-2 focus:ring-blue-200 transition-all"
+                        />
+                        <div className="flex gap-3">
+                            <input
+                                type="text"
+                                value={newMessage.text}
+                                onChange={(e) => setNewMessage({ ...newMessage, text: e.target.value })}
+                                required
+                                className="flex-1 px-4 py-3 border-2 border-gray-200 rounded-xl focus:border-blue-500 focus:ring-2 focus:ring-blue-200 transition-all"
+                            />
+                            <motion.button
+                                whileHover={{ scale: 1.05 }}
+                                whileTap={{ scale: 0.95 }}
+                                type="submit"
+                                className="px-6 py-3 bg-gradient-to-r from-blue-500 to-purple-500 text-white rounded-xl hover:shadow-lg hover:shadow-blue-500/50 flex items-center gap-2 font-semibold"
+                            >
+                                <Icon name="send" className="w-5 h-5" />
+                                Надіслати
+                            </motion.button>
+                        </div>
+                    </motion.form>
+                </div>
+            );
+        }
+
+        // Main App Component
+        function App() {
+            const [activeTab, setActiveTab] = useState('home');
+            const [isLoading, setIsLoading] = useState(true);
+
+            useEffect(() => {
+                // Initialize icons when component mounts
+                lucide.createIcons();
+                
+                // Hide loader after a delay
+                const timer = setTimeout(() => {
+                    setIsLoading(false);
+                    document.getElementById('loader').classList.add('hidden');
+                }, 500);
+
+                return () => clearTimeout(timer);
+            }, []);
+
+            const tabs = [
+                { id: 'home', label: 'Головна', icon: 'home' },
+                { id: 'calendar', label: 'Календар', icon: 'calendar' },
+                { id: 'shopping', label: 'Покупки', icon: 'shopping-cart' },
+                { id: 'budget', label: 'Бюджет', icon: 'dollar-sign' },
+                { id: 'menu', label: 'Меню', icon: 'utensils-crossed' },
+                { id: 'archive', label: 'Архів', icon: 'archive' },
+                { id: 'tasks', label: 'Справи', icon: 'list-todo' },
+                { id: 'chat', label: 'Чат', icon: 'message-circle' },
+            ];
+
+            return (
+                <div className="min-h-screen bg-gradient-to-br from-indigo-100 via-purple-100 to-pink-100 relative overflow-hidden">
+                    {/* Animated Background Elements */}
+                    <div className="fixed inset-0 overflow-hidden pointer-events-none">
+                        <motion.div
+                            animate={{
+                                scale: [1, 1.2, 1],
+                                rotate: [0, 90, 0],
+                            }}
+                            transition={{ duration: 20, repeat: Infinity }}
+                            className="absolute -top-40 -right-40 w-80 h-80 bg-gradient-to-br from-blue-400/20 to-purple-400/20 rounded-full blur-3xl"
+                        />
+                        <motion.div
+                            animate={{
+                                scale: [1, 1.3, 1],
+                                rotate: [0, -90, 0],
+                            }}
+                            transition={{ duration: 25, repeat: Infinity }}
+                            className="absolute -bottom-40 -left-40 w-96 h-96 bg-gradient-to-br from-pink-400/20 to-orange-400/20 rounded-full blur-3xl"
+                        />
+                        <motion.div
+                            animate={{
+                                y: [0, 100, 0],
+                                x: [0, 50, 0],
+                            }}
+                            transition={{ duration: 15, repeat: Infinity }}
+                            className="absolute top-1/2 left-1/2 w-64 h-64 bg-gradient-to-br from-green-400/10 to-blue-400/10 rounded-full blur-3xl"
+                        />
+                    </div>
+
+                    {/* Header */}
+                    <header className="bg-white/80 backdrop-blur-lg shadow-lg border-b border-white/20 sticky top-0 z-50">
+                        <div className="max-w-7xl mx-auto px-4 py-6">
+                            <motion.h1
+                                initial={{ y: -20, opacity: 0 }}
+                                animate={{ y: 0, opacity: 1 }}
+                                className="text-center text-3xl font-black bg-gradient-to-r from-blue-600 via-purple-600 to-pink-600 bg-clip-text text-transparent"
+                            >
+                                🏠 Сімейний Органайзер
+                            </motion.h1>
+                            <motion.p
+                                initial={{ opacity: 0 }}
+                                animate={{ opacity: 1 }}
+                                transition={{ delay: 0.2 }}
+                                className="text-center text-sm text-gray-600 mt-1"
+                            >
+                                Все для нас в одному місці
+                            </motion.p>
+                        </div>
+                    </header>
+
+                    {/* Navigation */}
+                    <nav className="bg-white/80 backdrop-blur-lg border-b border-white/20 shadow-md sticky top-[97px] z-40">
+                        <div className="max-w-7xl mx-auto px-4">
+                            <div className="flex overflow-x-auto gap-2 py-3 nav-scroll">
+                                {tabs.map((tab, index) => (
+                                    <motion.button
+                                        key={tab.id}
+                                        initial={{ y: -10, opacity: 0 }}
+                                        animate={{ y: 0, opacity: 1 }}
+                                        transition={{ delay: index * 0.05 }}
+                                        onClick={() => setActiveTab(tab.id)}
+                                        whileHover={{ scale: 1.05 }}
+                                        whileTap={{ scale: 0.95 }}
+                                        className={`flex items-center gap-2 px-5 py-2.5 rounded-xl whitespace-nowrap transition-all font-semibold ${
+                                            activeTab === tab.id
+                                                ? 'bg-gradient-to-r from-blue-500 via-purple-500 to-pink-500 text-white shadow-lg shadow-purple-500/50'
+                                                : 'bg-white text-gray-700 hover:bg-gray-50 shadow-sm hover:shadow-md'
+                                        }`}
+                                    >
+                                        <Icon name={tab.icon} className="w-5 h-5" />
+                                        {tab.label}
+                                    </motion.button>
+                                ))}
+                            </div>
+                        </div>
+                    </nav>
+
+                    {/* Main Content */}
+                    <main className="max-w-7xl mx-auto px-4 py-8 relative z-10">
+                        <AnimatePresence mode="wait">
+                            <motion.div
+                                key={activeTab}
+                                initial={{ opacity: 0, y: 20 }}
+                                animate={{ opacity: 1, y: 0 }}
+                                exit={{ opacity: 0, y: -20 }}
+                                transition={{ duration: 0.3 }}
+                                className="bg-white/90 backdrop-blur-lg rounded-2xl shadow-2xl p-8 border border-white/20"
+                            >
+                                {activeTab === 'home' && (
+                                    <div className="space-y-8">
+                                        <motion.div
+                                            initial={{ scale: 0.9, opacity: 0 }}
+                                            animate={{ scale: 1, opacity: 1 }}
+                                            className="text-center"
+                                        >
+                                            <h2 className="text-4xl font-black mb-3 bg-gradient-to-r from-blue-600 via-purple-600 to-pink-600 bg-clip-text text-transparent">
+                                                Вітаю в Сімейному Органайзері!
+                                            </h2>
+                                            <p className="text-gray-600 text-lg">
+                                                Тут ви можете керувати всіма справами в одному місці
+                                            </p>
+                                        </motion.div>
+
+                                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+                                            {tabs.slice(1).map((tab, index) => (
+                                                <motion.button
+                                                    key={tab.id}
+                                                    initial={{ opacity: 0, y: 20 }}
+                                                    animate={{ opacity: 1, y: 0 }}
+                                                    transition={{ delay: index * 0.1 }}
+                                                    whileHover={{ scale: 1.05, y: -5 }}
+                                                    whileTap={{ scale: 0.95 }}
+                                                    onClick={() => setActiveTab(tab.id)}
+                                                    className="bg-gradient-to-br from-white to-gray-50 border-2 border-transparent rounded-2xl p-6 shadow-lg hover:shadow-2xl hover:border-purple-300 transition-all text-left group relative overflow-hidden"
+                                                >
+                                                    <div className="absolute inset-0 bg-gradient-to-br from-blue-500/5 to-purple-500/5 opacity-0 group-hover:opacity-100 transition-opacity" />
+                                                    <div className="relative">
+                                                        <div className="flex items-center gap-3 mb-3">
+                                                            <motion.div
+                                                                whileHover={{ rotate: 360 }}
+                                                                transition={{ duration: 0.5 }}
+                                                                className="w-14 h-14 bg-gradient-to-br from-blue-500 to-purple-500 rounded-xl flex items-center justify-center shadow-lg"
+                                                            >
+                                                                <Icon name={tab.icon} className="w-7 h-7 text-white" />
+                                                            </motion.div>
+                                                            <h3 className="font-black text-xl">{tab.label}</h3>
+                                                        </div>
+                                                        <p className="text-sm text-gray-600 leading-relaxed">
+                                                            {tab.id === 'calendar' && 'Плануйте події, дні народження, візити до лікаря'}
+                                                            {tab.id === 'shopping' && 'Спільний список покупок для всієї родини'}
+                                                            {tab.id === 'budget' && 'Відстежуйте витрати та аналізуйте бюджет'}
+                                                            {tab.id === 'menu' && 'Плануйте меню на тиждень та список інгредієнтів'}
+                                                            {tab.id === 'archive' && 'Зберігайте важливі документи та паролі'}
+                                                            {tab.id === 'tasks' && 'Розподіляйте домашні справи між членами родини'}
+                                                            {tab.id === 'chat' && 'Швидкі повідомлення для всієї родини'}
+                                                        </p>
+                                                    </div>
+                                                </motion.button>
+                                            ))}
+                                        </div>
+
+                                        <motion.div
+                                            initial={{ opacity: 0 }}
+                                            animate={{ opacity: 1 }}
+                                            transition={{ delay: 0.5 }}
+                                            className="bg-gradient-to-r from-blue-500 via-purple-500 to-pink-500 rounded-2xl p-8 text-white shadow-2xl relative overflow-hidden"
+                                        >
+                                            <div className="absolute inset-0 bg-[url('data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iNDAiIGhlaWdodD0iNDAiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyI+PGNpcmNsZSBjeD0iMiIgY3k9IjIiIHI9IjEiIGZpbGw9IndoaXRlIiBmaWxsLW9wYWNpdHk9IjAuMSIvPjwvc3ZnPg==')] opacity-50" />
+                                            <div className="relative">
+                                                <h3 className="text-2xl font-black mb-3">💡 Порада дня</h3>
+                                                <p className="text-lg leading-relaxed">
+                                                    Використовуйте календар для планування справ та не забувайте оновлювати список покупок, щоб нічого не забути.
+                                                    Всі дані зберігаються локально на ваших пристроях.
+                                                </p>
+                                            </div>
+                                        </motion.div>
+                                    </div>
+                                )}
+                                {activeTab === 'calendar' && <Calendar />}
+                                {activeTab === 'shopping' && <ShoppingList />}
+                                {activeTab === 'budget' && <Budget />}
+                                {activeTab === 'menu' && <MenuPlanner />}
+                                {activeTab === 'archive' && <Archive />}
+                                {activeTab === 'tasks' && <Tasks />}
+                                {activeTab === 'chat' && <Chat />}
+                            </motion.div>
+                        </AnimatePresence>
+                    </main>
+
+                    {/* Footer */}
+                    <footer className="text-center py-8 text-gray-600 text-sm relative z-10">
+                        <motion.p
+                            initial={{ opacity: 0 }}
+                            animate={{ opacity: 1 }}
+                            transition={{ delay: 1 }}
+                        >
+                            Сімейний Органайзер © 2026 • Всі дані зберігаються локально • Для синхронізації між пристроями використовуйте експорт/імпорт
+                        </motion.p>
+                    </footer>
+                </div>
+            );
+        }
+
+        // Render the App
+        const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(<App />);
+    </script>
+</body>
+</html>
